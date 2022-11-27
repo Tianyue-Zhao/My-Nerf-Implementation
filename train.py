@@ -6,6 +6,7 @@ import numpy as np
 from network import embed_tensor, implicit_network
 from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march
 from random import sample
+from math import ceil
 
 # Configuration variables
 image_dimension = 200
@@ -13,7 +14,7 @@ downsample = True
 
 near = 1.5
 far = 4.5
-num_samples = 10
+num_samples = 20
 # Hierarichical sampling comes later
 
 train_steps = 10
@@ -21,6 +22,10 @@ batch_size = 10 # Number of rays each batch
 lr = 0.001
 encoding_position = 10
 encoding_direction = 4
+evaluation_run = False
+evaluation_poses = ["1_val_0016", "1_val_0018"]
+evaluation_path = "evaluation_pictures/"
+evaluation_batch = 400
 
 # Path names
 train_pickle_name = 'train_information.data'
@@ -42,6 +47,39 @@ def array_from_file(filename):
         line = line.split(' ')
         data_list.append([float(item) for item in line])
     return np.asarray(data_list)
+
+def evaluate():
+    intrinsics = array_from_file(intrinsic_matrix_path)
+    for pose in evaluation_poses:
+        extrinsic = array_from_file(train_pose_path + pose + '.txt')
+        positions = []
+        for i in range(image_dimension):
+            for k in range(image_dimension):
+                positions.append([i, k])
+        positions = np.asarray(positions)
+        evaluation_rays = ray_from_pixels(positions, intrinsics, extrinsic)
+        rgb_predicted = np.zeros((image_dimension ** 2, 3), dtype = np.float32)
+
+        for i in range(ceil(evaluation_rays.shape[0] / evaluation_batch)):
+            cur_low = i * evaluation_batch
+            cur_high = min((i + 1) * evaluation_batch, evaluation_rays.shape[0])
+
+            cur_rays = evaluation_rays[cur_low:cur_high, :]
+            cur_points, cur_directions, distances = ray_batch_to_points(cur_rays, near, far, num_samples, False, 0.7)
+            cur_points = torch.tensor(cur_points, device = device, dtype = torch.float32)
+            cur_directions = torch.tensor(cur_directions, device = device, dtype = torch.float32)
+            distances = torch.tensor(distances, device = device, dtype = torch.float32)
+            # Call the positional encoding and ask the implicit function about sigma and rgb
+            cur_points = embed_tensor(cur_points, L = encoding_position)
+            cur_directions = embed_tensor(cur_directions, L = encoding_direction)
+            sigma_value, rgb_value = implicit_function(cur_points, cur_directions)
+            rgb_batch = ray_march(cur_points, cur_directions, distances, sigma_value, rgb_value, num_samples)
+            rgb_batch = rgb_batch.detach().cpu().numpy()
+            rgb_predicted[cur_low:cur_high, :] = rgb_batch
+
+        rgb_predicted *= 255
+        rgb_predicted = rgb_predicted.reshape((image_dimension, image_dimension, 3)).astype(np.uint8)
+        cv2.imwrite(evaluation_path + pose + '.png', rgb_predicted)
 
 # Load the training data
 # Have not done training / validation split
@@ -93,6 +131,10 @@ implicit_function = implicit_network(6 * encoding_position, 6 * encoding_directi
 if(load_weights):
     implicit_function.load_state_dict(torch.load(implicit_weight_file))
 
+if(evaluation_run):
+    evaluate()
+    exit()
+
 loss_function = torch.nn.MSELoss()
 optimizer = torch.optim.Adam(implicit_function.parameters(), lr = lr)
 
@@ -122,3 +164,4 @@ for i in range(train_steps):
     print("Train step " + str(i))
 
 torch.save(implicit_function.state_dict(), implicit_weight_file)
+evaluate()

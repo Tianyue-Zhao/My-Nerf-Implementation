@@ -41,7 +41,7 @@ def ray_batch_to_points(rays, near, far, num_samples, inverse, perturb):
     points = points.reshape((-1, 3))
     directions = np.concatenate([directions] * num_samples, axis = 1)
     directions = directions.reshape((-1, 3))
-    return points, directions, distances[:, 0]
+    return points, directions, distances
 
 def ray_march(points, directions, distances, sigma_value, rgb_value, num_samples):
     # Reshape the values to distinguish between different rays
