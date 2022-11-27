@@ -6,6 +6,7 @@ import numpy as np
 # These depend on the embedding selected
 class implicit_network(torch.nn.Module):
     def __init__(self, pos_dim, dir_dim, depth = 8, feature_dim = 256):
+        super().__init__()
         layers = []
         prev_dim = pos_dim
         # Right now we write a skip from the beginning to the 5th layer
@@ -13,14 +14,14 @@ class implicit_network(torch.nn.Module):
             layers.append(torch.nn.Linear(prev_dim, feature_dim))
             layers.append(torch.nn.ReLU())
             prev_dim = feature_dim
-        self.part_1 = torch.nn.Sequential(layers)
+        self.part_1 = torch.nn.Sequential(*layers)
         prev_dim = pos_dim + feature_dim
         layers = []
         for i in range(4, depth):
             layers.append(torch.nn.Linear(prev_dim, feature_dim))
             layers.append(torch.nn.ReLU())
             prev_dim = feature_dim
-        self.part_2 = torch.nn.Sequential(layers)
+        self.part_2 = torch.nn.Sequential(*layers)
         self.sigma_output = torch.nn.Linear(feature_dim, 1)  # It would be good to check in detail whether there is activation here or not
         self.intermediate = torch.nn.Sequential(
             torch.nn.Linear(feature_dim, feature_dim),
@@ -38,9 +39,11 @@ class implicit_network(torch.nn.Module):
         tmp = torch.cat([tmp, pos_input], dim = 1)
         tmp = self.part_2(tmp)
         sigma_value = self.sigma_output(tmp)
+        sigma_value = torch.sigmoid(sigma_value)
         tmp = self.intermediate(tmp)
         tmp = torch.cat([tmp, dir_input], dim = 1)
-        rgb_value = self.rgb_output(tmp)
+        rgb_value = self.rgb_out(tmp)
+        rgb_value = torch.sigmoid(rgb_value)
         return sigma_value, rgb_value
     
 def embed_tensor(input_tensor, L = 10):
