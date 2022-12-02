@@ -3,10 +3,11 @@ import os
 import torch
 import pickle
 import numpy as np
-from network import embed_tensor, implicit_network
-from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march
 from random import sample
 from math import ceil
+from network import embed_tensor, implicit_network
+from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march
+from visualization import visualize_batch
 
 # Configuration variables
 image_dimension = 200
@@ -14,16 +15,16 @@ downsample = True
 
 near = 1.5
 far = 4.5
-num_samples = 20
+num_samples = 100
 # Hierarichical sampling comes later
 
-train_steps = 10
-batch_size = 10 # Number of rays each batch
-lr = 0.001
+train_steps = 5000
+batch_size = 3200 # Number of rays each batch
+lr = 0.0001
 encoding_position = 10
 encoding_direction = 4
 evaluation_run = False
-evaluation_poses = ["1_val_0016", "1_val_0018"]
+evaluation_poses = ["1_val_0016", "1_val_0018", "1_val_0020", "1_val_0022"]
 evaluation_path = "evaluation_pictures/"
 evaluation_batch = 400
 
@@ -104,7 +105,7 @@ if(not os.path.exists(train_pickle_name)):
     positions = []
     for i in range(image_dimension):
         for k in range(image_dimension):
-            positions.append([i, k])
+            positions.append([k, i])
     positions = np.asarray(positions)
     intrinsics = array_from_file(intrinsic_matrix_path)
     for i in range(len(image_list)):
@@ -132,7 +133,8 @@ if(load_weights):
     implicit_function.load_state_dict(torch.load(implicit_weight_file))
 
 if(evaluation_run):
-    evaluate()
+    #evaluate()
+    visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
     exit()
 
 loss_function = torch.nn.MSELoss()
@@ -161,7 +163,9 @@ for i in range(train_steps):
     cur_loss = loss_function(rgb_predicted, rgb_picture)
     cur_loss.backward()
     optimizer.step()
-    print("Train step " + str(i))
+    if(i % 100 == 0):
+        print("Training step " + str(i) + ", loss value is currently " + str(cur_loss.item()))
 
+torch.cuda.empty_cache()
 torch.save(implicit_function.state_dict(), implicit_weight_file)
 evaluate()

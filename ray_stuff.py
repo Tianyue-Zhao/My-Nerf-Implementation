@@ -3,10 +3,11 @@ import numpy as np
 
 def ray_from_pixels(positions, intrinsic, extrinsic):
     focal_length = intrinsic[0, 0]
-    n = intrinsic[0, 2]
-    camera_frame = [(n - positions[:,0]) / focal_length,
-                    (positions[:,1] - n) / focal_length,
-                    -np.ones(positions.shape[0])]
+    n = 100
+    focal_length /= 4
+    camera_frame = [(positions[:, 0] - n) / focal_length,
+                    (positions[:, 1] - n) / focal_length,
+                    np.ones(positions.shape[0])]
     camera_frame = np.stack(camera_frame, axis = 1)
     transformation = extrinsic
     camera_frame = np.concatenate([camera_frame, np.ones((positions.shape[0], 1))], axis = 1)
