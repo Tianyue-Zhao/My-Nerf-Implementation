@@ -1,9 +1,16 @@
+import torch
 import numpy as np
 import open3d as o3d
 from random import sample
 from ray_stuff import ray_batch_to_points
+from network import embed_tensor, implicit_network
+from math import ceil
 
 def visualize_batch(rays, batch_size, near, far, num_samples, rgb_data):
+    near = 3.1
+    far = 3.2
+    num_samples = 10
+    batch_size = 40000
     cur_indices = sample(range(rays.shape[0]), batch_size)
     cur_batch = rays[cur_indices, :]
     cur_points, cur_directions, distances = ray_batch_to_points(cur_batch,\
@@ -15,6 +22,48 @@ def visualize_batch(rays, batch_size, near, far, num_samples, rgb_data):
     colors = np.stack([colors] * num_samples, axis = 1).reshape((-1, 3)).astype(np.float64)
     colors = o3d.utility.Vector3dVector(colors)
     pcd.colors = colors
+    o3d.visualization.draw_geometries([pcd, bounding_box])
+
+def visualize_implicit_field(implicit_function, device):
+    sigma_threshold = 0.8
+    num_points = 150
+    batch_points = 400000
+
+    from train import array_from_file
+    bounding_box_parameters = array_from_file('bottles/bbox.txt')
+    bounding_box = bounding_box_parameters[0, :6].reshape((2, 3))
+    values = np.linspace(bounding_box[0, :], bounding_box[1, :], num_points)
+    x, y, z = np.meshgrid(values[:, 0], values[:, 1], values[:, 2])
+    points = np.stack([x, y, z], axis = 3)
+    points = points.reshape((-1, 3))
+    display_points = []
+
+    for i in range(ceil(points.shape[0] / batch_points)):
+        cur_low = i * batch_points
+        cur_high = min((i + 1) * batch_points, points.shape[0])
+        cur_points_numpy = points[cur_low : cur_high, :]
+        cur_points = torch.tensor(cur_points_numpy, device = device, dtype = torch.float32)
+        directions = torch.zeros(cur_points.shape, device = device, dtype = torch.float32)
+        directions[:, 0] = 1
+        cur_points = embed_tensor(cur_points, L = 10)
+        directions = embed_tensor(directions, L = 4)
+        sigma_value, rgb_value = implicit_function(cur_points, directions)
+        sigma_value = sigma_value.detach().cpu().numpy()
+        sigma_value = sigma_value.reshape(-1)
+        print(np.max(sigma_value))
+        print(np.min(sigma_value))
+        cur_points = cur_points_numpy[sigma_value > sigma_threshold, :]
+        display_points.append(cur_points)
+        torch.cuda.empty_cache()
+        del cur_points
+        del directions
+        del sigma_value
+        del rgb_value
+
+    points = np.concatenate(display_points, axis = 0)
+    points = o3d.utility.Vector3dVector(points)
+    pcd = o3d.geometry.PointCloud(points)
+    bounding_box = draw_bounding_box()
     o3d.visualization.draw_geometries([pcd, bounding_box])
 
 def draw_bounding_box():

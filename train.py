@@ -7,24 +7,24 @@ from random import sample
 from math import ceil
 from network import embed_tensor, implicit_network
 from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march
-from visualization import visualize_batch
+from visualization import visualize_batch, visualize_implicit_field
 
 # Configuration variables
 image_dimension = 200
 downsample = True
 
-near = 1.5
+near = 0.1
 far = 4.5
 num_samples = 100
 # Hierarichical sampling comes later
 
-train_steps = 5000
+train_steps = 100
 batch_size = 3200 # Number of rays each batch
 lr = 0.0001
 encoding_position = 10
 encoding_direction = 4
 evaluation_run = False
-evaluation_poses = ["1_val_0016", "1_val_0018", "1_val_0020", "1_val_0022"]
+evaluation_poses = ["1_val_0031", "1_val_0032", "1_val_0033", "1_val_0034"]
 evaluation_path = "evaluation_pictures/"
 evaluation_batch = 400
 
@@ -50,13 +50,16 @@ def array_from_file(filename):
     return np.asarray(data_list)
 
 def evaluate():
+    evaluation_poses = name_list
     intrinsics = array_from_file(intrinsic_matrix_path)
     for pose in evaluation_poses:
         extrinsic = array_from_file(train_pose_path + pose + '.txt')
+        image = cv2.imread(train_image_path + pose + '.png')
+        image = cv2.resize(image, (image_dimension, image_dimension))
         positions = []
         for i in range(image_dimension):
             for k in range(image_dimension):
-                positions.append([i, k])
+                positions.append([k, i])
         positions = np.asarray(positions)
         evaluation_rays = ray_from_pixels(positions, intrinsics, extrinsic)
         rgb_predicted = np.zeros((image_dimension ** 2, 3), dtype = np.float32)
@@ -80,12 +83,15 @@ def evaluate():
 
         rgb_predicted *= 255
         rgb_predicted = rgb_predicted.reshape((image_dimension, image_dimension, 3)).astype(np.uint8)
+        mse = np.sum(np.square(image - rgb_predicted))
         cv2.imwrite(evaluation_path + pose + '.png', rgb_predicted)
 
 # Load the training data
 # Have not done training / validation split
 if(not os.path.exists(train_pickle_name)):
     images = os.listdir(train_image_path)
+    images = ['1_val_0031.png', '1_val_0032.png', '1_val_0033.png', '1_val_0034.png', '0_train_0000.png', '0_train_0001.png']
+    #images = images[:1]
     image_list = []
     pose_list = []
     name_list = []
@@ -134,7 +140,8 @@ if(load_weights):
 
 if(evaluation_run):
     #evaluate()
-    visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
+    #visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
+    visualize_implicit_field(implicit_function, device)
     exit()
 
 loss_function = torch.nn.MSELoss()

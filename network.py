@@ -22,7 +22,10 @@ class implicit_network(torch.nn.Module):
             layers.append(torch.nn.ReLU())
             prev_dim = feature_dim
         self.part_2 = torch.nn.Sequential(*layers)
-        self.sigma_output = torch.nn.Linear(feature_dim, 1)  # It would be good to check in detail whether there is activation here or not
+        self.sigma_output = torch.nn.Sequential(
+            torch.nn.Linear(feature_dim, 1),
+            torch.nn.ReLU()
+        )
         self.intermediate = torch.nn.Sequential(
             torch.nn.Linear(feature_dim, feature_dim),
             torch.nn.ReLU()
@@ -39,7 +42,9 @@ class implicit_network(torch.nn.Module):
         tmp = torch.cat([tmp, pos_input], dim = 1)
         tmp = self.part_2(tmp)
         sigma_value = self.sigma_output(tmp)
-        sigma_value = torch.sigmoid(sigma_value)
+        #sigma_value = torch.sigmoid(sigma_value)
+        print(torch.max(sigma_value))
+        print(torch.min(sigma_value))
         tmp = self.intermediate(tmp)
         tmp = torch.cat([tmp, dir_input], dim = 1)
         rgb_value = self.rgb_out(tmp)
