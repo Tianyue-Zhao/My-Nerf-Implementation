@@ -1,10 +1,16 @@
 import torch
 import numpy as np
 
-def ray_from_pixels(positions, intrinsic, extrinsic):
+def ray_from_pixels(image_dimension, intrinsic, extrinsic):
+    positions = []
+    for i in range(image_dimension):
+        for k in range(image_dimension):
+            positions.append([k, i])
+    positions = np.asarray(positions)
     focal_length = intrinsic[0, 0]
-    n = 100
-    focal_length /= 4
+    downsample_factor = 800 / image_dimension
+    n = 400 / downsample_factor
+    focal_length = focal_length / downsample_factor
     camera_frame = [(positions[:, 0] - n) / focal_length,
                     (positions[:, 1] - n) / focal_length,
                     np.ones(positions.shape[0])]
@@ -20,10 +26,16 @@ def ray_from_pixels(positions, intrinsic, extrinsic):
     return np.concatenate([camera_location, directions], axis = 1)
 
 # Alternative way with origins on the image plane
-def ray_from_pixels_plane(positions, intrinsic, extrinsic):
+def ray_from_pixels_plane(image_dimension, intrinsic, extrinsic):
+    positions = []
+    for i in range(image_dimension):
+        for k in range(image_dimension):
+            positions.append([k, i])
+    positions = np.asarray(positions)
     focal_length = intrinsic[0, 0]
-    n = 100
-    focal_length /= 4
+    downsample_factor = 800 / image_dimension
+    n = 400 / downsample_factor
+    focal_length = focal_length / downsample_factor
     camera_frame = [(positions[:, 0] - n) / focal_length,
                     (positions[:, 1] - n) / focal_length,
                     np.ones(positions.shape[0])]

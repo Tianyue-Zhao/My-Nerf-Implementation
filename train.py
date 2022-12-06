@@ -13,8 +13,8 @@ from visualization import visualize_batch, visualize_implicit_field
 image_dimension = 200
 downsample = True
 
-near = 1
-far = 3.5
+near = 2
+far = 4.5
 num_samples = 100
 # Hierarichical sampling comes later
 
@@ -24,7 +24,7 @@ lr = 0.00006
 encoding_position = 10
 encoding_direction = 4
 evaluation_run = True
-evaluation_poses = ["1_val_0031", "1_val_0032", "1_val_0033", "1_val_0034"]
+evaluation_poses = ["1_val_0031", "1_val_0032", "1_val_0033", "1_val_0034", "0_train_0000"]
 evaluation_path = "evaluation_pictures/"
 evaluation_batch = 2000
 
@@ -50,18 +50,12 @@ def array_from_file(filename):
     return np.asarray(data_list)
 
 def evaluate():
-    evaluation_poses = name_list
     intrinsics = array_from_file(intrinsic_matrix_path)
     for pose in evaluation_poses:
         extrinsic = array_from_file(train_pose_path + pose + '.txt')
         image = cv2.imread(train_image_path + pose + '.png')
         image = cv2.resize(image, (image_dimension, image_dimension))
-        positions = []
-        for i in range(image_dimension):
-            for k in range(image_dimension):
-                positions.append([k, i])
-        positions = np.asarray(positions)
-        evaluation_rays = ray_from_pixels_plane(positions, intrinsics, extrinsic)
+        evaluation_rays = ray_from_pixels(image_dimension, intrinsics, extrinsic)
         rgb_predicted = np.zeros((image_dimension ** 2, 3), dtype = np.float32)
 
         for i in range(ceil(evaluation_rays.shape[0] / evaluation_batch)):
@@ -81,20 +75,23 @@ def evaluate():
             rgb_batch = rgb_batch.detach().cpu().numpy()
             rgb_predicted[cur_low:cur_high, :] = rgb_batch
 
+        image = image.astype(np.float32) / 255
+        rgb_predicted = rgb_predicted.reshape((image_dimension, image_dimension, 3))
+        mse = np.sum(np.square(image - rgb_predicted)) / image_dimension / image_dimension / 3
+        psnr = -10 * np.log10(mse)
+        print("PSNR on image " + pose + ' ' + str(psnr))
         rgb_predicted *= 255
-        rgb_predicted = rgb_predicted.reshape((image_dimension, image_dimension, 3)).astype(np.uint8)
-        mse = np.sum(np.square(image - rgb_predicted))
+        rgb_predicted = rgb_predicted.astype(np.uint8)
         cv2.imwrite(evaluation_path + pose + '.png', rgb_predicted)
 
 # Load the training data
 # Have not done training / validation split
 if(not os.path.exists(train_pickle_name)):
     images = os.listdir(train_image_path)
-    #images = ['1_val_0031.png', '1_val_0032.png', '1_val_0033.png', '1_val_0034.png', '0_train_0000.png', '0_train_0001.png']
-    #images = images[:1]
-    image_list = []
-    pose_list = []
-    name_list = []
+    # Remove validation set from training
+    for item in evaluation_poses:
+        images.remove(item + '.png')
+    image_list, pose_list, name_list = [], [], []
     for image in images:
         if(not image.endswith('.png')):
             continue
@@ -108,14 +105,9 @@ if(not os.path.exists(train_pickle_name)):
         name_list.append(image.strip('.txt'))
     # Make a list of rays in origin and direction representation
     ray_list = []
-    positions = []
-    for i in range(image_dimension):
-        for k in range(image_dimension):
-            positions.append([k, i])
-    positions = np.asarray(positions)
     intrinsics = array_from_file(intrinsic_matrix_path)
     for i in range(len(image_list)):
-        ray_list.append(ray_from_pixels_plane(positions, intrinsics, pose_list[i]))
+        ray_list.append(ray_from_pixels(image_dimension, intrinsics, pose_list[i]))
     rays = np.asarray(ray_list).reshape((-1, 6))
     data_dict = {'name': name_list, 'pose': pose_list, 'image': image_list, 'rays': rays}
     output_file = open(train_pickle_name, 'wb')
