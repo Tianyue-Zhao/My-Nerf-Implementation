@@ -5,28 +5,28 @@ import pickle
 import numpy as np
 from random import sample
 from math import ceil
-from network import embed_tensor, implicit_network
-from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march
+from network import embed_tensor, implicit_network, NeRF
+from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march, ray_from_pixels_plane
 from visualization import visualize_batch, visualize_implicit_field
 
 # Configuration variables
 image_dimension = 200
 downsample = True
 
-near = 0.1
-far = 4.5
+near = 1
+far = 3.5
 num_samples = 100
 # Hierarichical sampling comes later
 
-train_steps = 100
+train_steps = 2000
 batch_size = 3200 # Number of rays each batch
-lr = 0.0001
+lr = 0.00006
 encoding_position = 10
 encoding_direction = 4
-evaluation_run = False
+evaluation_run = True
 evaluation_poses = ["1_val_0031", "1_val_0032", "1_val_0033", "1_val_0034"]
 evaluation_path = "evaluation_pictures/"
-evaluation_batch = 400
+evaluation_batch = 2000
 
 # Path names
 train_pickle_name = 'train_information.data'
@@ -34,7 +34,7 @@ train_image_path = 'bottles/rgb/'
 train_pose_path = 'bottles/pose/'
 intrinsic_matrix_path = 'bottles/intrinsics.txt'
 implicit_weight_file = 'implicit_weights.data'
-load_weights = False
+load_weights = True
 
 def array_from_file(filename):
     input_file = open(filename, 'r')
@@ -61,7 +61,7 @@ def evaluate():
             for k in range(image_dimension):
                 positions.append([k, i])
         positions = np.asarray(positions)
-        evaluation_rays = ray_from_pixels(positions, intrinsics, extrinsic)
+        evaluation_rays = ray_from_pixels_plane(positions, intrinsics, extrinsic)
         rgb_predicted = np.zeros((image_dimension ** 2, 3), dtype = np.float32)
 
         for i in range(ceil(evaluation_rays.shape[0] / evaluation_batch)):
@@ -90,7 +90,7 @@ def evaluate():
 # Have not done training / validation split
 if(not os.path.exists(train_pickle_name)):
     images = os.listdir(train_image_path)
-    images = ['1_val_0031.png', '1_val_0032.png', '1_val_0033.png', '1_val_0034.png', '0_train_0000.png', '0_train_0001.png']
+    #images = ['1_val_0031.png', '1_val_0032.png', '1_val_0033.png', '1_val_0034.png', '0_train_0000.png', '0_train_0001.png']
     #images = images[:1]
     image_list = []
     pose_list = []
@@ -115,7 +115,7 @@ if(not os.path.exists(train_pickle_name)):
     positions = np.asarray(positions)
     intrinsics = array_from_file(intrinsic_matrix_path)
     for i in range(len(image_list)):
-        ray_list.append(ray_from_pixels(positions, intrinsics, pose_list[i]))
+        ray_list.append(ray_from_pixels_plane(positions, intrinsics, pose_list[i]))
     rays = np.asarray(ray_list).reshape((-1, 6))
     data_dict = {'name': name_list, 'pose': pose_list, 'image': image_list, 'rays': rays}
     output_file = open(train_pickle_name, 'wb')
@@ -134,14 +134,14 @@ num_images = len(image_list)
 rgb_data = np.asarray(image_list).reshape((-1, 3))
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-implicit_function = implicit_network(6 * encoding_position, 6 * encoding_direction).to(device)
+implicit_function = implicit_network(6 * encoding_position + 3, 6 * encoding_direction + 3).to(device)
 if(load_weights):
     implicit_function.load_state_dict(torch.load(implicit_weight_file))
 
 if(evaluation_run):
-    #evaluate()
+    evaluate()
     #visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
-    visualize_implicit_field(implicit_function, device)
+    #visualize_implicit_field(implicit_function, device)
     exit()
 
 loss_function = torch.nn.MSELoss()

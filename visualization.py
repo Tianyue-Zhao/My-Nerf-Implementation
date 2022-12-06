@@ -7,10 +7,10 @@ from network import embed_tensor, implicit_network
 from math import ceil
 
 def visualize_batch(rays, batch_size, near, far, num_samples, rgb_data):
-    near = 3.1
-    far = 3.2
-    num_samples = 10
-    batch_size = 40000
+    #near = 3.1
+    #far = 3.2
+    #num_samples = 10
+    #batch_size = 40000
     cur_indices = sample(range(rays.shape[0]), batch_size)
     cur_batch = rays[cur_indices, :]
     cur_points, cur_directions, distances = ray_batch_to_points(cur_batch,\
@@ -20,16 +20,15 @@ def visualize_batch(rays, batch_size, near, far, num_samples, rgb_data):
     pcd = o3d.geometry.PointCloud(point_vector)
     colors = rgb_data[cur_indices, :]
     colors = np.stack([colors] * num_samples, axis = 1).reshape((-1, 3)).astype(np.float64)
-    colors = o3d.utility.Vector3dVector(colors)
-    pcd.colors = colors
+    #colors = o3d.utility.Vector3dVector(colors)
+    #pcd.colors = colors
     o3d.visualization.draw_geometries([pcd, bounding_box])
 
 def visualize_implicit_field(implicit_function, device):
-    sigma_threshold = 0.8
+    sigma_threshold = 0.1
     num_points = 150
     batch_points = 400000
 
-    from train import array_from_file
     bounding_box_parameters = array_from_file('bottles/bbox.txt')
     bounding_box = bounding_box_parameters[0, :6].reshape((2, 3))
     values = np.linspace(bounding_box[0, :], bounding_box[1, :], num_points)
@@ -67,7 +66,6 @@ def visualize_implicit_field(implicit_function, device):
     o3d.visualization.draw_geometries([pcd, bounding_box])
 
 def draw_bounding_box():
-    from train import array_from_file
     bounding_box_parameters = array_from_file('bottles/bbox.txt')
     bounding_box = bounding_box_parameters[0, :6].reshape((2, 3))
     lower_point = np.stack([bounding_box[0,:]] * 4, axis = 0)
@@ -86,3 +84,16 @@ def draw_bounding_box():
     lines = o3d.utility.Vector2iVector(lines)
     line_set = o3d.geometry.LineSet(points = points, lines = lines)
     return line_set
+
+def array_from_file(filename):
+    input_file = open(filename, 'r')
+    lines = input_file.readlines()
+    input_file.close()
+    data_list = []
+    for line in lines:
+        line = line.strip()
+        if(len(line) == 0):
+            continue
+        line = line.split(' ')
+        data_list.append([float(item) for item in line])
+    return np.asarray(data_list)

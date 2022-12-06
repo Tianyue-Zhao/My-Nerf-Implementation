@@ -19,6 +19,25 @@ def ray_from_pixels(positions, intrinsic, extrinsic):
     directions /= np.linalg.norm(directions, axis = 1)[:, None]
     return np.concatenate([camera_location, directions], axis = 1)
 
+# Alternative way with origins on the image plane
+def ray_from_pixels_plane(positions, intrinsic, extrinsic):
+    focal_length = intrinsic[0, 0]
+    n = 100
+    focal_length /= 4
+    camera_frame = [(positions[:, 0] - n) / focal_length,
+                    (positions[:, 1] - n) / focal_length,
+                    np.ones(positions.shape[0])]
+    camera_frame = np.stack(camera_frame, axis = 1)
+    transformation = extrinsic
+    camera_origin = np.concatenate([camera_frame, np.ones((positions.shape[0], 1))], axis = 1)
+    camera_origin = transformation @ camera_origin.T
+    camera_origin = camera_origin.T
+    camera_origin = camera_origin[:, :3]
+    camera_direction = transformation[:3, :3] @ camera_frame.T
+    camera_direction = camera_direction.T
+    camera_direction /= np.linalg.norm(camera_direction, axis = 1)[:, None]
+    return np.concatenate([camera_origin, camera_direction], axis = 1)
+
 # Stratified sampling
 def ray_batch_to_points(rays, near, far, num_samples, inverse, perturb):
     t_val = np.linspace(0, 1, num = num_samples)
@@ -55,7 +74,7 @@ def ray_march(points, directions, distances, sigma_value, rgb_value, num_samples
     interval_lengths = distances[:, 1:] - distances[:, :-1] # The lengths of the intervals between points
     interval_lengths = torch.cat([interval_lengths,\
         1e9 * torch.ones((interval_lengths.shape[0], 1), device = interval_lengths.device)], dim = 1)
-    alpha = 1 - torch.exp(-sigma_value * interval_lengths) # Each point approximates values for the interval after it
+    alpha = 1 - torch.exp(-sigma_value * interval_lengths * 100) # Each point approximates values for the interval after it
     weights = alpha * torch.cumprod(1 - alpha + 1e-9, dim = 1)
     # Compute the output rgb values with the weights
     rgb_value = torch.sum(weights[..., None] * rgb_value, dim = 1)
