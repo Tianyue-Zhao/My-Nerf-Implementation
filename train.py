@@ -5,8 +5,8 @@ import pickle
 import numpy as np
 from random import sample
 from math import ceil
-from network import embed_tensor, implicit_network, NeRF
-from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march, ray_from_pixels_plane
+from network import embed_tensor, implicit_network
+from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march, ray_from_pixels_plane, sample_points_weighted
 from visualization import visualize_batch, visualize_implicit_field
 
 # Configuration variables
@@ -15,25 +15,27 @@ downsample = True
 
 near = 2
 far = 4.5
-num_samples = 100
-# Hierarichical sampling comes later
+num_samples = 64
+hierarchical_sampling = True
+fine_samples = 100
 
-train_steps = 2000
-batch_size = 3200 # Number of rays each batch
-lr = 0.00006
+train_steps = 6000
+batch_size = 1600 # Number of rays each batch
+lr = 0.00007
 encoding_position = 10
 encoding_direction = 4
-evaluation_run = True
+evaluation_run = False
 evaluation_poses = ["1_val_0031", "1_val_0032", "1_val_0033", "1_val_0034", "0_train_0000"]
-evaluation_path = "evaluation_pictures/"
-evaluation_batch = 2000
+evaluation_batch = 1000
 
 # Path names
 train_pickle_name = 'train_information.data'
 train_image_path = 'bottles/rgb/'
 train_pose_path = 'bottles/pose/'
 intrinsic_matrix_path = 'bottles/intrinsics.txt'
+evaluation_path = "evaluation_pictures/"
 implicit_weight_file = 'implicit_weights.data'
+implicit_fine_file = 'implicit_fine.data'
 load_weights = True
 
 def array_from_file(filename):
@@ -71,9 +73,16 @@ def evaluate():
             cur_points = embed_tensor(cur_points, L = encoding_position)
             cur_directions = embed_tensor(cur_directions, L = encoding_direction)
             sigma_value, rgb_value = implicit_function(cur_points, cur_directions)
-            rgb_batch = ray_march(cur_points, cur_directions, distances, sigma_value, rgb_value, num_samples)
-            rgb_batch = rgb_batch.detach().cpu().numpy()
-            rgb_predicted[cur_low:cur_high, :] = rgb_batch
+            # If hierarchical sampling is enabled, sample the fine function
+            # Consider directly sampling the fine function for evaluation
+            if(hierarchical_sampling):
+                cur_points, cur_directions, distances = sample_points_weighted(cur_rays, sigma_value, distances, num_samples, fine_samples)
+                cur_points = embed_tensor(cur_points, L = encoding_position)
+                cur_directions = embed_tensor(cur_directions, L = encoding_direction)
+                sigma_value, rgb_value = implicit_fine(cur_points, cur_directions)
+                rgb_batch = ray_march(cur_points, cur_directions, distances, sigma_value, rgb_value, num_samples + fine_samples)
+                rgb_batch = rgb_batch.detach().cpu().numpy()
+                rgb_predicted[cur_low:cur_high, :] = rgb_batch
 
         image = image.astype(np.float32) / 255
         rgb_predicted = rgb_predicted.reshape((image_dimension, image_dimension, 3))
@@ -127,8 +136,12 @@ rgb_data = np.asarray(image_list).reshape((-1, 3))
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 implicit_function = implicit_network(6 * encoding_position + 3, 6 * encoding_direction + 3).to(device)
+if(hierarchical_sampling):
+    implicit_fine = implicit_network(6 * encoding_position + 3, 6 * encoding_direction + 3).to(device)
 if(load_weights):
     implicit_function.load_state_dict(torch.load(implicit_weight_file))
+    if(hierarchical_sampling):
+        implicit_fine.load_state_dict(torch.load(implicit_fine_file))
 
 if(evaluation_run):
     evaluate()
@@ -136,12 +149,21 @@ if(evaluation_run):
     #visualize_implicit_field(implicit_function, device)
     exit()
 
+gradient_variables = list(implicit_function.parameters())
+if(hierarchical_sampling):
+    gradient_variables += list(implicit_fine.parameters())
 loss_function = torch.nn.MSELoss()
-optimizer = torch.optim.Adam(implicit_function.parameters(), lr = lr)
+optimizer = torch.optim.Adam(gradient_variables, lr = lr)
 
 for i in range(train_steps):
     cur_indices = sample(range(rays.shape[0]), batch_size)
     cur_batch = rays[cur_indices, :]
+    # Get the picture rgb values
+    cur_indices = np.asarray(cur_indices)
+    rgb_picture = rgb_data[cur_indices, :]
+    rgb_picture = torch.tensor(rgb_picture, device = device, dtype = torch.float32)
+
+    # Sample coarse model and add to loss
     cur_points, cur_directions, distances = ray_batch_to_points(cur_batch,\
         near, far, num_samples, False, 0.7);
     cur_points = torch.tensor(cur_points, device = device, dtype = torch.float32)
@@ -152,14 +174,19 @@ for i in range(train_steps):
     cur_points = embed_tensor(cur_points, L = encoding_position)
     cur_directions = embed_tensor(cur_directions, L = encoding_direction)
     sigma_value, rgb_value = implicit_function(cur_points, cur_directions)
-
     rgb_predicted = ray_march(cur_points, cur_directions, distances, sigma_value, rgb_value, num_samples)
-    # Get the picture rgb values
-    cur_indices = np.asarray(cur_indices)
-    rgb_picture = rgb_data[cur_indices, :]
-    rgb_picture = torch.tensor(rgb_picture, device = device, dtype = torch.float32)
-    optimizer.zero_grad()
     cur_loss = loss_function(rgb_predicted, rgb_picture)
+
+    # If hierarchical sampling is enabled, ask the fine model about sigma and rgb
+    if(hierarchical_sampling):
+        cur_points, cur_directions, distances = sample_points_weighted(cur_batch, sigma_value, distances, num_samples, fine_samples)
+        cur_points = embed_tensor(cur_points, L = encoding_position)
+        cur_directions = embed_tensor(cur_directions, L = encoding_direction)
+        sigma_value, rgb_value = implicit_fine(cur_points, cur_directions)
+        rgb_predicted = ray_march(cur_points, cur_directions, distances, sigma_value, rgb_value, num_samples + fine_samples)
+        cur_loss += loss_function(rgb_predicted, rgb_picture)
+
+    optimizer.zero_grad()
     cur_loss.backward()
     optimizer.step()
     if(i % 100 == 0):
@@ -167,4 +194,6 @@ for i in range(train_steps):
 
 torch.cuda.empty_cache()
 torch.save(implicit_function.state_dict(), implicit_weight_file)
+if(hierarchical_sampling):
+    torch.save(implicit_fine.state_dict(), implicit_fine_file)
 evaluate()

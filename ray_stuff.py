@@ -66,12 +66,60 @@ def ray_batch_to_points(rays, near, far, num_samples, inverse, perturb):
     lower_bound[0] = distances[0]
     random_values = np.random.rand(rays.shape[0], num_samples)
     distances = lower_bound + (upper_bound - lower_bound) * random_values
-    distances = distances[:, :, None]
     directions = rays[:, None, 3:]
     points = rays[:, None, :3]
-    points = points + distances * directions
+    points = points + distances[:, :, None] * directions
     points = points.reshape((-1, 3))
     directions = np.concatenate([directions] * num_samples, axis = 1)
+    directions = directions.reshape((-1, 3))
+    return points, directions, distances
+
+def sample_points_weighted(rays, sigma_value, distances, num_samples, fine_samples):
+    num_total = num_samples + fine_samples
+    points = rays[:, None, :3]
+    points = torch.tensor(points, device = sigma_value.device, dtype = torch.float32)
+    directions = rays[:, None, 3:]
+    directions = torch.tensor(directions, device = sigma_value.device, dtype = torch.float32)
+    distances = distances[:, :]
+    interval_lengths = distances[:, 1:] - distances[:, :-1]
+
+    # Translate sigma to weights
+    sigma_value = torch.reshape(sigma_value, (-1, num_samples))
+    interval_lengths = torch.cat([interval_lengths,\
+        1e9 * torch.ones((interval_lengths.shape[0], 1), device = interval_lengths.device)], dim = 1)
+    alpha = 1 - torch.exp(-sigma_value * interval_lengths * 100) # Each point approximates values for the interval after it
+    weights = alpha * torch.cumprod(1 - alpha + 1e-9, dim = 1)
+
+    # Sample points to translate from the weight distribution
+    weights = weights[:, 1:-1] + 1e-5
+    pdf = weights / torch.sum(weights, dim = 1, keepdim = True)
+    cdf = torch.cumsum(pdf, dim = 1)
+    cdf = torch.cat([torch.zeros_like(cdf[:, :1]), cdf], dim = 1)
+    samples = torch.rand((cdf.shape[0], fine_samples), device = sigma_value.device)
+    samples = samples.contiguous()
+    indices = torch.searchsorted(cdf, samples, right = True) # Rays x fine_samples
+    indices = torch.min(62 * torch.ones_like(indices), indices)
+    if(torch.min(indices) < 1):
+        print("At most 0 somehow")
+        print(torch.min(indices))
+        print(cdf.shape)
+        exit()
+
+    # Sample on distribution
+    new_distances = 0.5 * (distances[:, 1:] + distances[:, :-1]) # Taking the midpoints according to the original code
+    interval_lengths = new_distances[:, 1:] - new_distances[:, :-1] # The lengths of the intervals between points
+    near_distances = torch.gather(new_distances, 1, indices - 1) # The near distance of the interval each selected point is in
+    interval_lengths = torch.gather(interval_lengths, 1, indices - 1)
+    probability_interval = torch.gather(pdf, 1, indices - 1)
+    probability_start = torch.gather(cdf, 1, indices - 1)
+    new_distances = near_distances + (samples - probability_start) * interval_lengths / probability_interval
+
+    # Calculate points and merge
+    distances = torch.cat([distances, new_distances], dim = 1)
+    distances, sort_indices = torch.sort(distances, dim = 1)
+    points = points + distances[:, :, None] * directions
+    points = points.reshape((-1, 3))
+    directions = torch.cat([directions] * num_total, dim = 1)
     directions = directions.reshape((-1, 3))
     return points, directions, distances
 
