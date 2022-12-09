@@ -48,7 +48,7 @@ def ray_from_pixels_plane(image_dimension, intrinsic, extrinsic):
     camera_direction = transformation[:3, :3] @ camera_frame.T
     camera_direction = camera_direction.T
     camera_direction /= np.linalg.norm(camera_direction, axis = 1)[:, None]
-    return np.concatenate([camera_origin, camera_direction], axis = 1)
+    return np.concatenate([camera_origin, camera_direction], axis = 1, dtype = np.float32)
 
 # Stratified sampling
 def ray_batch_to_points(rays, near, far, num_samples, inverse, perturb):
@@ -98,7 +98,7 @@ def sample_points_weighted(rays, sigma_value, distances, num_samples, fine_sampl
     samples = torch.rand((cdf.shape[0], fine_samples), device = sigma_value.device)
     samples = samples.contiguous()
     indices = torch.searchsorted(cdf, samples, right = True) # Rays x fine_samples
-    indices = torch.min(62 * torch.ones_like(indices), indices)
+    indices = torch.min((num_samples - 2) * torch.ones_like(indices), indices)
     if(torch.min(indices) < 1):
         print("At most 0 somehow")
         print(torch.min(indices))

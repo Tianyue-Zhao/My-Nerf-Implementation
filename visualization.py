@@ -25,7 +25,7 @@ def visualize_batch(rays, batch_size, near, far, num_samples, rgb_data):
     o3d.visualization.draw_geometries([pcd, bounding_box])
 
 def visualize_implicit_field(implicit_function, device):
-    sigma_threshold = 0.1
+    sigma_threshold = 0.2
     num_points = 150
     batch_points = 400000
 

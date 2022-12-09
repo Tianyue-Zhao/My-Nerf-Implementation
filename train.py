@@ -2,6 +2,7 @@ import cv2
 import os
 import torch
 import pickle
+import time
 import numpy as np
 from random import sample
 from math import ceil
@@ -10,22 +11,23 @@ from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march, ray_from_
 from visualization import visualize_batch, visualize_implicit_field
 
 # Configuration variables
-image_dimension = 200
-downsample = True
+image_dimension = 800
+downsample = False
 
 near = 2
 far = 4.5
-num_samples = 64
-hierarchical_sampling = True
+num_samples = 100
+hierarchical_sampling = False
 fine_samples = 100
 
-train_steps = 6000
+train_steps = 100000
 batch_size = 1600 # Number of rays each batch
-lr = 0.00007
+lr = 0.00008
 encoding_position = 10
 encoding_direction = 4
-evaluation_run = False
+evaluation_run = True
 evaluation_poses = ["1_val_0031", "1_val_0032", "1_val_0033", "1_val_0034", "0_train_0000"]
+#evaluation_poses += ["1_val_0035", "0_train_0001", "0_train_0013", "0_train_0014"]
 evaluation_batch = 1000
 
 # Path names
@@ -56,7 +58,8 @@ def evaluate():
     for pose in evaluation_poses:
         extrinsic = array_from_file(train_pose_path + pose + '.txt')
         image = cv2.imread(train_image_path + pose + '.png')
-        image = cv2.resize(image, (image_dimension, image_dimension))
+        if(downsample):
+            image = cv2.resize(image, (image_dimension, image_dimension))
         evaluation_rays = ray_from_pixels(image_dimension, intrinsics, extrinsic)
         rgb_predicted = np.zeros((image_dimension ** 2, 3), dtype = np.float32)
 
@@ -83,6 +86,10 @@ def evaluate():
                 rgb_batch = ray_march(cur_points, cur_directions, distances, sigma_value, rgb_value, num_samples + fine_samples)
                 rgb_batch = rgb_batch.detach().cpu().numpy()
                 rgb_predicted[cur_low:cur_high, :] = rgb_batch
+            else:
+                rgb_batch = ray_march(cur_points, cur_directions, distances, sigma_value, rgb_value, num_samples)
+                rgb_batch = rgb_batch.detach().cpu().numpy()
+                rgb_predicted[cur_low:cur_high, :] = rgb_batch
 
         image = image.astype(np.float32) / 255
         rgb_predicted = rgb_predicted.reshape((image_dimension, image_dimension, 3))
@@ -105,7 +112,8 @@ if(not os.path.exists(train_pickle_name)):
         if(not image.endswith('.png')):
             continue
         cur_image = cv2.imread(train_image_path + image)
-        cur_image = cv2.resize(cur_image, (image_dimension, image_dimension))
+        if(downsample):
+            cur_image = cv2.resize(cur_image, (image_dimension, image_dimension))
         cur_image = cur_image.astype(np.float32) / 255
         image_list.append(cur_image)
         image = image.strip('.png') + '.txt'
@@ -113,11 +121,13 @@ if(not os.path.exists(train_pickle_name)):
         pose_list.append(cur_pose)
         name_list.append(image.strip('.txt'))
     # Make a list of rays in origin and direction representation
-    ray_list = []
+    rays = np.zeros((image_dimension * image_dimension * len(image_list), 6), dtype = np.float32)
     intrinsics = array_from_file(intrinsic_matrix_path)
     for i in range(len(image_list)):
-        ray_list.append(ray_from_pixels(image_dimension, intrinsics, pose_list[i]))
-    rays = np.asarray(ray_list).reshape((-1, 6))
+        rays[i * image_dimension * image_dimension :\
+            (i + 1) * image_dimension * image_dimension, :] = ray_from_pixels(image_dimension,\
+            intrinsics, pose_list[i])
+        print(i)
     data_dict = {'name': name_list, 'pose': pose_list, 'image': image_list, 'rays': rays}
     output_file = open(train_pickle_name, 'wb')
     pickle.dump(data_dict, output_file)
@@ -189,7 +199,7 @@ for i in range(train_steps):
     optimizer.zero_grad()
     cur_loss.backward()
     optimizer.step()
-    if(i % 100 == 0):
+    if(i % 1000 == 0):
         print("Training step " + str(i) + ", loss value is currently " + str(cur_loss.item()))
 
 torch.cuda.empty_cache()
