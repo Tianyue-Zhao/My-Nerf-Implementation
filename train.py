@@ -16,19 +16,21 @@ downsample = False
 
 near = 2
 far = 4.5
-num_samples = 200
+num_samples = 1000
 hierarchical_sampling = False
 fine_samples = 100
 
 train_steps = 10000 # 130 K
-batch_size = 1024 # Number of rays each batch
+batch_size = 512 # Number of rays each batch
+combine_loss = 10 # Batches to combine loss over
 lr = 0.0001
 encoding_position = 10
 encoding_direction = 4
 evaluation_run = True
+#evaluation_poses = ["2_test_0000", "2_test_0016", "2_test_0055", "2_test_0093", "2_test_0160"]
 evaluation_poses = ["1_val_0031", "1_val_0032", "1_val_0033", "1_val_0034", "0_train_0000"]
-#evaluation_poses += ["1_val_0035", "0_train_0001", "0_train_0013", "0_train_0014"]
-evaluation_batch = 1000
+evaluation_poses += ["1_val_0035", "0_train_0001", "0_train_0013", "0_train_0014"]
+evaluation_batch = 200
 
 # Path names
 train_pickle_name = 'train_information.data'
@@ -155,9 +157,9 @@ if(load_weights):
 
 if(evaluation_run):
     #evaluate()
-    #visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
+    visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
     #visualize_implicit_field(implicit_function, device)
-    depth_from_picture(implicit_function, device)
+    #depth_from_picture(implicit_function, device)
     exit()
 
 gradient_variables = list(implicit_function.parameters())
@@ -200,15 +202,16 @@ for i in range(train_steps):
         if(1 % 100 == 0):
             print("Print prediction loss " + str(fine_prediction_loss))
 
-    optimizer.zero_grad()
     cur_loss.backward()
-    optimizer.step()
-    if(i % 100 == 0):
-        print("Training step " + str(i) + ", loss value is currently " + str(cur_loss.item()))
-    if(i % 10000 == 0):
-        torch.save(implicit_function.state_dict(), "implicit_weights_"+str(i)+".data")
-        #for param_group in optimizer.param_groups:
-        #    param_group['lr'] = 1e-4 + (2e-5 - 1e-4) * 1 / 20000
+    if(combine_loss == 0 or i % combine_loss == 0):
+        optimizer.step()
+        optimizer.zero_grad()
+        if(i % 100 == 0):
+            print("Training step " + str(i) + ", loss value is currently " + str(cur_loss.item()))
+        if(i % 10000 == 0):
+            torch.save(implicit_function.state_dict(), "implicit_weights_"+str(i)+".data")
+            #for param_group in optimizer.param_groups:
+            #    param_group['lr'] = 1e-4 + (2e-5 - 1e-4) * 1 / 20000
 
 torch.cuda.empty_cache()
 torch.save(implicit_function.state_dict(), implicit_weight_file)

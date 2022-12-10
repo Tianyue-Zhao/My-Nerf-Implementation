@@ -9,10 +9,10 @@ from network import embed_tensor, implicit_network
 from math import ceil
 
 def visualize_batch(rays, batch_size, near, far, num_samples, rgb_data):
-    #near = 3.1
-    #far = 3.2
-    #num_samples = 10
-    #batch_size = 40000
+    #near = 2
+    #far = 4.5
+    #num_samples = 100
+    #batch_size = 1600
     cur_indices = sample(range(rays.shape[0]), batch_size)
     cur_batch = rays[cur_indices, :]
     cur_points, cur_directions, distances = ray_batch_to_points(cur_batch,\
@@ -139,16 +139,16 @@ def depth_from_picture(evaluation_model, device):
             weights, indices = torch.sort(weights, dim = 1)
             distances = torch.gather(distances, 1, indices[:, num_samples - 1:]).detach().cpu().numpy()
             depth[cur_low : cur_high] = distances[:, 0]
-        mapped_depth = 245 + (70 - 245) * (depth - near) / 1.8
-        mapped_depth[mapped_depth < 0] = 0
-        mapped_depth = mapped_depth.reshape((800, 800))
-        mapped_depth = np.stack([mapped_depth] * 3, axis = 2).astype(np.uint8)
+        #mapped_depth = 245 + (70 - 245) * (depth - near) / 1.8
+        #mapped_depth[mapped_depth < 0] = 0
+        #mapped_depth = mapped_depth.reshape((800, 800))
+        #mapped_depth = np.stack([mapped_depth] * 3, axis = 2).astype(np.uint8)
         # The below is a mapping that is not as originally intended but works
         # very well rather unexpectedly
-        #mapped_depth = 255 + (70 - 255) * depth / (far - near)
-        #mapped_depth = mapped_depth.reshape((800, 800))
-        #mapped_depth = np.maximum(np.zeros_like(mapped_depth), mapped_depth - 0.7)
-        #mapped_depth = np.stack([mapped_depth] * 3, axis = 2).astype(np.uint8)
+        mapped_depth = 255 + (70 - 255) * depth / (far - near)
+        mapped_depth = mapped_depth.reshape((800, 800))
+        mapped_depth = np.maximum(np.zeros_like(mapped_depth), mapped_depth - 0.7)
+        mapped_depth = np.stack([mapped_depth] * 3, axis = 2).astype(np.uint8)
         fig, (ax1, ax2) = plt.subplots(1, 2)
         ax1.imshow(image)
         ax2.imshow(mapped_depth)
