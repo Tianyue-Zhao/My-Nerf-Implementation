@@ -8,7 +8,7 @@ from random import sample
 from math import ceil
 from network import embed_tensor, implicit_network
 from ray_stuff import ray_from_pixels, ray_batch_to_points, ray_march, ray_from_pixels_plane, sample_points_weighted
-from visualization import visualize_batch, visualize_implicit_field
+from visualization import visualize_batch, visualize_implicit_field, depth_from_picture
 
 # Configuration variables
 image_dimension = 800
@@ -16,13 +16,13 @@ downsample = False
 
 near = 2
 far = 4.5
-num_samples = 100
+num_samples = 200
 hierarchical_sampling = False
 fine_samples = 100
 
-train_steps = 100000
-batch_size = 1600 # Number of rays each batch
-lr = 0.00008
+train_steps = 10000 # 130 K
+batch_size = 1024 # Number of rays each batch
+lr = 0.0001
 encoding_position = 10
 encoding_direction = 4
 evaluation_run = True
@@ -154,9 +154,10 @@ if(load_weights):
         implicit_fine.load_state_dict(torch.load(implicit_fine_file))
 
 if(evaluation_run):
-    evaluate()
+    #evaluate()
     #visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
     #visualize_implicit_field(implicit_function, device)
+    depth_from_picture(implicit_function, device)
     exit()
 
 gradient_variables = list(implicit_function.parameters())
@@ -194,13 +195,20 @@ for i in range(train_steps):
         cur_directions = embed_tensor(cur_directions, L = encoding_direction)
         sigma_value, rgb_value = implicit_fine(cur_points, cur_directions)
         rgb_predicted = ray_march(cur_points, cur_directions, distances, sigma_value, rgb_value, num_samples + fine_samples)
-        cur_loss += loss_function(rgb_predicted, rgb_picture)
+        fine_prediction_loss = loss_function(rgb_predicted, rgb_picture)
+        cur_loss += fine_prediction_loss
+        if(1 % 100 == 0):
+            print("Print prediction loss " + str(fine_prediction_loss))
 
     optimizer.zero_grad()
     cur_loss.backward()
     optimizer.step()
-    if(i % 1000 == 0):
+    if(i % 100 == 0):
         print("Training step " + str(i) + ", loss value is currently " + str(cur_loss.item()))
+    if(i % 10000 == 0):
+        torch.save(implicit_function.state_dict(), "implicit_weights_"+str(i)+".data")
+        #for param_group in optimizer.param_groups:
+        #    param_group['lr'] = 1e-4 + (2e-5 - 1e-4) * 1 / 20000
 
 torch.cuda.empty_cache()
 torch.save(implicit_function.state_dict(), implicit_weight_file)

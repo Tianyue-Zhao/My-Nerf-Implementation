@@ -74,6 +74,20 @@ def ray_batch_to_points(rays, near, far, num_samples, inverse, perturb):
     directions = directions.reshape((-1, 3))
     return points, directions, distances
 
+def cumprod_exclusive(
+  tensor: torch.Tensor
+) -> torch.Tensor:
+  r"""
+  (Courtesy of https://github.com/krrish94/nerf-pytorch)
+
+  Mimick functionality of tf.math.cumprod(..., exclusive=True), as it isn't available in PyTorch.
+  """
+  cumprod = torch.cumprod(tensor, 1)
+  cumprod = torch.roll(cumprod, 1, 1)
+  cumprod[..., 0] = 1.
+  
+  return cumprod
+
 def sample_points_weighted(rays, sigma_value, distances, num_samples, fine_samples):
     num_total = num_samples + fine_samples
     points = rays[:, None, :3]
@@ -135,7 +149,7 @@ def ray_march(points, directions, distances, sigma_value, rgb_value, num_samples
     interval_lengths = torch.cat([interval_lengths,\
         1e9 * torch.ones((interval_lengths.shape[0], 1), device = interval_lengths.device)], dim = 1)
     alpha = 1 - torch.exp(-sigma_value * interval_lengths * 100) # Each point approximates values for the interval after it
-    weights = alpha * torch.cumprod(1 - alpha + 1e-9, dim = 1)
+    weights = alpha * cumprod_exclusive(1 - alpha + 1e-9)
     # Compute the output rgb values with the weights
     rgb_value = torch.sum(weights[..., None] * rgb_value, dim = 1)
     return rgb_value

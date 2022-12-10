@@ -51,6 +51,8 @@ class implicit_network(torch.nn.Module):
         return sigma_value, rgb_value
     
 def embed_tensor(input_tensor, L = 10):
+    if(L == 0):
+        return input_tensor
     tensor_list = [input_tensor]
     for i in range(L):
         cur_tensor = torch.sin((2 ** i) * np.pi * input_tensor)

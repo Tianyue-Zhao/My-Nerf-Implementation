@@ -1,8 +1,10 @@
 import torch
 import numpy as np
 import open3d as o3d
+import cv2
+import matplotlib.pyplot as plt
 from random import sample
-from ray_stuff import ray_batch_to_points
+from ray_stuff import ray_from_pixels, ray_batch_to_points, cumprod_exclusive
 from network import embed_tensor, implicit_network
 from math import ceil
 
@@ -97,3 +99,57 @@ def array_from_file(filename):
         line = line.split(' ')
         data_list.append([float(item) for item in line])
     return np.asarray(data_list)
+
+def depth_from_picture(evaluation_model, device):
+    pictures = ['1_val_0031', '1_val_0032', '1_val_0033', '1_val_0034']
+    intrinsics = array_from_file('bottles/intrinsics.txt')
+    batch = 1024
+    near = 2
+    far = 4.5
+    num_samples = 200
+    encoding_position = 10
+    encoding_direction = 4
+    for picture in pictures:
+        image = cv2.imread("bottles/rgb/" + picture + ".png")
+        extrinsic = array_from_file("bottles/pose/" + picture + ".txt")
+        rays = ray_from_pixels(800, intrinsics, extrinsic)
+        depth = np.zeros(800 ** 2)
+        for i in range(ceil(rays.shape[0] / batch)):
+            cur_low = i * batch
+            cur_high = min((i + 1) * batch, rays.shape[0])
+
+            cur_rays = rays[cur_low:cur_high, :]
+            cur_points, cur_directions, distances = ray_batch_to_points(cur_rays, near, far, num_samples, False, 0.7)
+            cur_points = torch.tensor(cur_points, device = device, dtype = torch.float32)
+            cur_directions = torch.tensor(cur_directions, device = device, dtype = torch.float32)
+            distances = torch.tensor(distances, device = device, dtype = torch.float32)
+            cur_points = embed_tensor(cur_points, L = encoding_position)
+            cur_directions = embed_tensor(cur_directions, L = encoding_direction)
+            sigma_value, rgb_value = evaluation_model(cur_points, cur_directions)
+
+            # Find weight values in the way as in ray marching
+            cur_points = torch.reshape(cur_points, (-1, num_samples, 3))
+            sigma_value = torch.reshape(sigma_value, (-1, num_samples))
+            rgb_value = torch.reshape(rgb_value, (-1, num_samples, 3))
+            interval_lengths = distances[:, 1:] - distances[:, :-1] # The lengths of the intervals between cur_points
+            interval_lengths = torch.cat([interval_lengths,\
+                1e9 * torch.ones((interval_lengths.shape[0], 1), device = interval_lengths.device)], dim = 1)
+            alpha = 1 - torch.exp(-sigma_value * interval_lengths * 100) # Each point approximates values for the interval after it
+            weights = alpha * cumprod_exclusive(1 - alpha + 1e-9)
+            weights, indices = torch.sort(weights, dim = 1)
+            distances = torch.gather(distances, 1, indices[:, num_samples - 1:]).detach().cpu().numpy()
+            depth[cur_low : cur_high] = distances[:, 0]
+        mapped_depth = 245 + (70 - 245) * (depth - near) / 1.8
+        mapped_depth[mapped_depth < 0] = 0
+        mapped_depth = mapped_depth.reshape((800, 800))
+        mapped_depth = np.stack([mapped_depth] * 3, axis = 2).astype(np.uint8)
+        # The below is a mapping that is not as originally intended but works
+        # very well rather unexpectedly
+        #mapped_depth = 255 + (70 - 255) * depth / (far - near)
+        #mapped_depth = mapped_depth.reshape((800, 800))
+        #mapped_depth = np.maximum(np.zeros_like(mapped_depth), mapped_depth - 0.7)
+        #mapped_depth = np.stack([mapped_depth] * 3, axis = 2).astype(np.uint8)
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+        ax1.imshow(image)
+        ax2.imshow(mapped_depth)
+        plt.savefig('evaluation_pictures/' + picture + '_depth.png')
