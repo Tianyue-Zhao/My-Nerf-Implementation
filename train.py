@@ -16,7 +16,7 @@ downsample = False
 
 near = 2
 far = 4.5
-num_samples = 1000
+num_samples = 200 # 1000 For the 140K steps weights
 hierarchical_sampling = False
 fine_samples = 100
 
@@ -30,7 +30,7 @@ evaluation_run = True
 #evaluation_poses = ["2_test_0000", "2_test_0016", "2_test_0055", "2_test_0093", "2_test_0160"]
 evaluation_poses = ["1_val_0031", "1_val_0032", "1_val_0033", "1_val_0034", "0_train_0000"]
 evaluation_poses += ["1_val_0035", "0_train_0001", "0_train_0013", "0_train_0014"]
-evaluation_batch = 200
+evaluation_batch = 1000
 
 # Path names
 train_pickle_name = 'train_information.data'
@@ -156,8 +156,8 @@ if(load_weights):
         implicit_fine.load_state_dict(torch.load(implicit_fine_file))
 
 if(evaluation_run):
-    #evaluate()
-    visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
+    evaluate()
+    #visualize_batch(rays, batch_size, near, far, num_samples, rgb_data)
     #visualize_implicit_field(implicit_function, device)
     #depth_from_picture(implicit_function, device)
     exit()
